@@ -1,0 +1,13 @@
+# Theos
+.theos/
+.DS_Store
+*.deb
+.dragon/
+packages/
+compile_commands.json
+.vscode/
+build/
+.idea/
+*.dSYM/
+*.o
+*.dylib
