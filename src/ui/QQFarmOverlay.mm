@@ -17,6 +17,7 @@ static char kAccountKey;
 @property (nonatomic, strong) UITextField *codeInput;
 @property (nonatomic, strong) UIButton *saveConfigButton;
 @property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) UIButton *addAccountButton; // 添加账号按钮
 @property (nonatomic, strong) UIScrollView *accountsScrollView; // 账号列表
 @property (nonatomic, strong) UIRefreshControl *refreshControl; // 下拉刷新控件
 @property (nonatomic, weak) UIView *currentAlertCover; // 当前显示的 Alert 遮罩
@@ -89,7 +90,7 @@ static char kAccountKey;
         [_containerView addSubview:_accountView];
 
         // 账号列表 ScrollView
-        _accountsScrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 10, 280, 290)];
+        _accountsScrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 10, 280, 240)];
         _accountsScrollView.showsVerticalScrollIndicator = YES;
         _accountsScrollView.backgroundColor = [UIColor colorWithWhite:0.95 alpha:1.0];
         _accountsScrollView.layer.cornerRadius = 8;
@@ -100,6 +101,16 @@ static char kAccountKey;
         _refreshControl = [[UIRefreshControl alloc] init];
         [_refreshControl addTarget:self action:@selector(fetchAccounts) forControlEvents:UIControlEventValueChanged];
         [_accountsScrollView addSubview:_refreshControl];
+
+        // 添加账号按钮
+        _addAccountButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _addAccountButton.frame = CGRectMake(10, 260, 280, 35);
+        [_addAccountButton setTitle:@"添加账号" forState:UIControlStateNormal];
+        _addAccountButton.backgroundColor = [UIColor systemGreenColor];
+        [_addAccountButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _addAccountButton.layer.cornerRadius = 8;
+        [_addAccountButton addTarget:self action:@selector(onAddAccountTapped) forControlEvents:UIControlEventTouchUpInside];
+        [_accountView addSubview:_addAccountButton];
 
         // --- 设置视图 (Settings View) ---
         _settingsView = [[UIView alloc] initWithFrame:CGRectMake(0, 50, 300, 300)];
@@ -184,6 +195,81 @@ static char kAccountKey;
         [_containerView addSubview:_closeButton];
     }
     return self;
+}
+
+- (void)onAddAccountTapped {
+    NSLog(@"添加账号");
+    
+    NSString *code = [QQFarmUtils getLastCapturedCode];
+    if (!code || code.length == 0) {
+        [self showCustomAlertWithTitle:@"错误" message:@"未获取到 Code，请先抓取 Code"];
+        return;
+    }
+    
+    [self showCustomConfirmAlertWithTitle:@"添加账号" message:@"是否将当前 Code 添加为新账号？" confirmHandler:^{
+        NSString *server = self.serverInput.text;
+        NSString *token = self.tokenInput.text;
+        
+        if (!server || server.length == 0) {
+            [self showCustomAlertWithTitle:@"错误" message:@"请先配置服务器地址"];
+            return;
+        }
+        
+        // 构建请求参数
+        NSDictionary *params = @{
+            @"name": @"",
+            @"code": code,
+            @"platform": @"qq",
+            @"loginType": @"manual"
+        };
+        
+        // 处理 URL
+        NSString *baseUrl = server;
+        if ([baseUrl hasSuffix:@"/"]) {
+            baseUrl = [baseUrl substringToIndex:baseUrl.length - 1];
+        }
+        NSString *urlString = [NSString stringWithFormat:@"%@/api/accounts", baseUrl];
+        NSURL *url = [NSURL URLWithString:urlString];
+        
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        request.HTTPMethod = @"POST";
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        if (token && token.length > 0) {
+            [request setValue:token forHTTPHeaderField:@"x-admin-token"];
+        }
+        
+        NSError *jsonError;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:params options:0 error:&jsonError];
+        if (jsonError) {
+            [self showCustomAlertWithTitle:@"错误" message:@"构建请求数据失败"];
+            return;
+        }
+        request.HTTPBody = jsonData;
+        
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (error) {
+                    [self showCustomAlertWithTitle:@"添加失败" message:error.localizedDescription];
+                } else {
+                    NSError *jsonError;
+                    NSDictionary *respDict = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+                    if (jsonError) {
+                         NSString *respStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                         [self showCustomAlertWithTitle:@"添加失败" message:[NSString stringWithFormat:@"解析错误: %@", respStr]];
+                    } else if ([respDict[@"ok"] boolValue]) {
+                        [self showCustomAlertWithTitle:@"成功" message:@"账号添加成功"];
+                    } else {
+                        NSString *errMsg = respDict[@"message"] ?: @"未知错误";
+                        [self showCustomAlertWithTitle:@"添加失败" message:errMsg];
+                    }
+                }
+                
+                // 无论成功失败，都刷新列表
+                [self fetchAccounts];
+            });
+        }];
+        [task resume];
+    }];
 }
 
 - (void)onTabChanged:(UIButton *)sender {
@@ -441,32 +527,45 @@ static char kAccountKey;
         [self.accountsScrollView addSubview:card];
         
         // 按钮布局
-        CGFloat btnW = width / 2.0;
+        CGFloat btnW = (width - 40) / 3;
         CGFloat btnH = 30.0;
-        CGFloat btnY = 60.0;
+        CGFloat btnY = 50.0;
         
         // 更新按钮
         UIButton *updateBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        updateBtn.frame = CGRectMake(0, btnY, btnW, btnH);
+        updateBtn.frame = CGRectMake(10, btnY, btnW, btnH);
         [updateBtn setTitle:@"更新" forState:UIControlStateNormal];
         updateBtn.backgroundColor = [UIColor systemBlueColor];
         [updateBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        updateBtn.layer.cornerRadius = 4;
         updateBtn.titleLabel.font = [UIFont systemFontOfSize:12];
-        [updateBtn addTarget:self action:@selector(onUpdateTapped:) forControlEvents:UIControlEventTouchUpInside];
         objc_setAssociatedObject(updateBtn, &kAccountKey, acc, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [updateBtn addTarget:self action:@selector(onUpdateTapped:) forControlEvents:UIControlEventTouchUpInside];
         [cardContent addSubview:updateBtn];
         
         // 启动/停止按钮
         UIButton *toggleBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        toggleBtn.frame = CGRectMake(btnW, btnY, btnW, btnH);
-        NSString *toggleTitle = isRunning ? @"停止" : @"启动";
-        [toggleBtn setTitle:toggleTitle forState:UIControlStateNormal];
+        toggleBtn.frame = CGRectMake(10 + btnW + 10, btnY, btnW, btnH);
+        [toggleBtn setTitle:isRunning ? @"停止" : @"启动" forState:UIControlStateNormal];
         toggleBtn.backgroundColor = isRunning ? [UIColor systemRedColor] : [UIColor systemGreenColor];
         [toggleBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        toggleBtn.layer.cornerRadius = 4;
         toggleBtn.titleLabel.font = [UIFont systemFontOfSize:12];
-        [toggleBtn addTarget:self action:@selector(onToggleTapped:) forControlEvents:UIControlEventTouchUpInside];
         objc_setAssociatedObject(toggleBtn, &kAccountKey, acc, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [toggleBtn addTarget:self action:@selector(onToggleTapped:) forControlEvents:UIControlEventTouchUpInside];
         [cardContent addSubview:toggleBtn];
+
+        // 删除按钮
+        UIButton *deleteBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        deleteBtn.frame = CGRectMake(10 + btnW * 2 + 20, btnY, btnW, btnH);
+        [deleteBtn setTitle:@"删除" forState:UIControlStateNormal];
+        deleteBtn.backgroundColor = [UIColor grayColor];
+        [deleteBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        deleteBtn.layer.cornerRadius = 4;
+        deleteBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+        objc_setAssociatedObject(deleteBtn, &kAccountKey, acc, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [deleteBtn addTarget:self action:@selector(onDeleteTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [cardContent addSubview:deleteBtn];
         
         y += 100; // 90 (高度) + 10 (间距)
     }
@@ -610,6 +709,64 @@ static char kAccountKey;
                     } else {
                         NSString *errMsg = respDict[@"message"] ?: @"未知错误";
                         [self showCustomAlertWithTitle:@"操作失败" message:errMsg];
+                    }
+                }
+                // 刷新列表
+                [self fetchAccounts];
+            });
+        }];
+        [task resume];
+    }];
+}
+
+- (void)onDeleteTapped:(UIButton *)sender {
+    NSDictionary *acc = objc_getAssociatedObject(sender, &kAccountKey);
+    NSString *title = [NSString stringWithFormat:@"删除（%@）", acc[@"name"]];
+    NSString *msg = @"是否确认删除该账号？！";
+    
+    [self showCustomConfirmAlertWithTitle:title message:msg confirmHandler:^{
+        NSLog(@"确认删除账号: %@", acc[@"name"]);
+        
+        NSString *server = self.serverInput.text;
+        NSString *token = self.tokenInput.text;
+        
+        if (!server || server.length == 0) {
+            [self showCustomAlertWithTitle:@"错误" message:@"请先配置服务器地址"];
+            return;
+        }
+        
+        // 处理 URL
+        NSString *baseUrl = server;
+        if ([baseUrl hasSuffix:@"/"]) {
+            baseUrl = [baseUrl substringToIndex:baseUrl.length - 1];
+        }
+        
+        NSString *accountId = [NSString stringWithFormat:@"%@", acc[@"id"]];
+        NSString *urlString = [NSString stringWithFormat:@"%@/api/accounts/%@", baseUrl, accountId];
+        NSURL *url = [NSURL URLWithString:urlString];
+        
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        request.HTTPMethod = @"DELETE";
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        if (token && token.length > 0) {
+            [request setValue:token forHTTPHeaderField:@"x-admin-token"];
+        }
+        
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (error) {
+                    [self showCustomAlertWithTitle:@"删除失败" message:error.localizedDescription];
+                } else {
+                    NSError *jsonError;
+                    NSDictionary *respDict = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+                    if (jsonError) {
+                         NSString *respStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                         [self showCustomAlertWithTitle:@"删除失败" message:[NSString stringWithFormat:@"解析错误: %@", respStr]];
+                    } else if ([respDict[@"ok"] boolValue]) {
+                        [self showCustomAlertWithTitle:@"成功" message:@"账号已删除"];
+                    } else {
+                        NSString *errMsg = respDict[@"message"] ?: @"未知错误";
+                        [self showCustomAlertWithTitle:@"删除失败" message:errMsg];
                     }
                 }
                 // 刷新列表
