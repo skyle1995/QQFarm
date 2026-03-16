@@ -1,6 +1,9 @@
+# <span style="color:red; font-size:50px;">用智能助手挂机会封号！！！</span>
+
 # QQFarm 助手
 
 这是一个 iOS Tweak 插件，用于辅助管理 QQFarm 账号。它可以自动抓取 QQ 的登录凭证（Code），并与远程服务器进行交互，实现账号的更新和自动化任务的启停控制。
+
 
 ## 功能特性
 
